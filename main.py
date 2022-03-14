@@ -16,24 +16,13 @@ class State:
         self.poison = poison
         self.exp = exp
 
-    def update(self, **kwargs):
-        """Update attributes and refresh the prev_state copy"""
-        if not self._prev_state:
-            self._prev_state = State(
-                mode=self.mode,
-                life=self.life,
-                poison=self.poison,
-                exp=self.exp
-            )
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-        return self
-
     def flushed(self):
-        self._prev_state = None
-
-    def has_changes(self):
-        return self._prev_state != None
+        self._prev_state = State(
+            mode=self.mode,
+            life=self.life,
+            poison=self.poison,
+            exp=self.exp
+        )
 
     def is_changed(self, prop):
         if not self._prev_state:
@@ -49,17 +38,17 @@ state = State()
 # }}}
 
 # Button handlers {{{
-_last_press = 0
+last_press = 0
 def debounce(wait=200):
     def decorator(func):
         def inner(*args, **kwargs):
-            global _last_press
+            global last_press
             call_time = utime.ticks_ms()
-            if call_time - _last_press >= wait:
-                _last_press = call_time
+            if call_time - last_press >= wait:
+                last_press = call_time
                 return func(*args, **kwargs)
             else:
-                _last_press = call_time
+                last_press = call_time
         return inner
     if callable(wait):
         return decorator(200)
@@ -76,26 +65,26 @@ def next_mode(pin):
     index = index + 1
     if index >= len(MODES):
         index = 0
-    state.update(mode=MODES[index])
+    state.mode = MODES[index]
 
 @debounce(wait=200)
 def increment(pin):
     print('increment start', state.life)
     if state.mode == 'life':
-        state.update(life=state.life + 1)
+        state.life = state.life + 1
     elif state.mode == 'poison':
-        state.update(poison=state.poison + 1)
+        state.poison = state.poison + 1
     elif state.mode == 'exp':
-        state.update(exp=state.exp + 1)
+        state.exp = state.exp + 1
 
 @debounce(wait=200)
 def decrement(pin):
     if state.mode == 'life':
-        state.update(life=state.life - 1)
+        state.life = state.life - 1
     elif state.mode == 'poison':
-        state.update(poison=state.poison - 1)
+        state.poison = state.poison - 1
     elif state.mode == 'exp':
-        state.update(exp=state.exp - 1)
+        state.exp = state.exp - 1
 # }}}
 
 # Button definitions {{{
@@ -178,11 +167,12 @@ def full_render():
     draw_poison()
     draw_exp()
     badger.update()
+    state.flushed()
 
 def incremental_render():
     if state.is_changed('mode'):
         full_render()
-        state.flushed()
+        return
 
     updates = []
     if state.is_changed('life'):
@@ -192,16 +182,19 @@ def incremental_render():
     if state.is_changed('exp'):
         updates.append(draw_exp())
     for update in filter(lambda x: x, updates):
+        print('flushing')
         badger.partial_update(*update)
-
-    state.flushed()
+        state.flushed()
 # }}}
 
 #
 # Main Program Loop
 #
 badger.update_speed(badger2040.UPDATE_FAST)
+full_render()
 
 while True:
-    incremental_render()
-    time.sleep(0.6)
+    current_time = utime.ticks_ms()
+    if current_time - last_press > 500:
+        incremental_render()
+    time.sleep(0.3)
