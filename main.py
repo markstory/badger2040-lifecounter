@@ -40,7 +40,6 @@ def next_mode(pin):
     if index >= len(MODES):
         index = 0
     state.mode = MODES[index]
-    print(state)
 
 def increment(pin):
     state.refresh = True
@@ -78,20 +77,61 @@ button_up.irq(trigger=machine.Pin.IRQ_RISING, handler=increment)
 button_down.irq(trigger=machine.Pin.IRQ_RISING, handler=decrement)
 # }}}
 
+# Drawing {{{
+def draw_life():
+    badger.pen(0)
+    badger.thickness(6)
+    if state.life < 10:
+        badger.text(str(state.life), 70, 90, scale=3.0, rotation=-90)
+    elif state.life < 100:
+        badger.text(str(state.life), 70, 120, scale=3.0, rotation=-90)
+    else:
+        badger.text(str(state.life), 90, 125, scale=2.0, rotation=-90)
+
+    badger.thickness(1)
+    badger.text('health', 120, 85, scale=0.50, rotation=-90)
+    if state.mode == 'life':
+        badger.line(126, 88, 126, 40)
+
+def draw_poison():
+    value = state.poison
+    if value >= 10:
+        value = 'X'
+
+    badger.pen(0)
+    badger.thickness(3)
+    badger.text(str(value), 230, 115, scale=2.0, rotation=-90)
+
+    badger.thickness(1)
+    badger.text('poison', 260, 120, scale=0.50, rotation=-90)
+    if state.mode == 'poison':
+        badger.line(268, 120, 268, 75)
+
+def draw_exp():
+    badger.pen(0)
+    badger.thickness(3)
+    badger.text(str(state.exp), 230, 45, scale=2.0, rotation=-90)
+
+    badger.thickness(1)
+    badger.text('exp', 260, 40, scale=0.50, rotation=-90)
+    if state.mode == 'exp':
+        badger.line(268, 45, 268, 12)
+# }}}
+
 #
 # Main Program Loop
 #
+badger.update_speed(badger2040.UPDATE_FAST)
 while True:
     if state.refresh:
         state.refresh = False
         badger.pen(15)
         badger.clear()
 
-        badger.pen(0)
-        badger.thickness(4)
-        badger.text(state.get_value(), 30, 30, 2.0)
-
-        badger.thickness(2)
-        badger.text(state.mode, 45, 60, 1.0)
+        # Draw life
+        draw_life()
+        draw_poison()
+        draw_exp()
         badger.update()
+
     time.sleep(0.1)
