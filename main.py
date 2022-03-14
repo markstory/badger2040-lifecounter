@@ -7,6 +7,7 @@ badger = badger2040.Badger2040()
 
 # Application State {{{
 MODES = ('life', 'poison', 'exp')
+
 class State:
     _prev_state = None
 
@@ -17,12 +18,22 @@ class State:
         self.exp = exp
 
     def flushed(self):
+        """
+        Call when updates to the UI are applied so that
+        we can 'diff' the next render more efficiently.
+        """
         self._prev_state = State(
             mode=self.mode,
             life=self.life,
             poison=self.poison,
             exp=self.exp
         )
+
+    def reset(self):
+        self.mode = 'life'
+        self.life = 40
+        self.poison = 0
+        self.exp = 0
 
     def is_changed(self, prop):
         if not self._prev_state:
@@ -40,15 +51,20 @@ state = State()
 # Button handlers {{{
 last_press = 0
 def debounce(wait=200):
+    """
+    IRQ handlers can be fired multiple times due to contact chatter.
+    Since we can't handle this with hardware we use a simple timer
+    for all the button presses as this program doesn't need any
+    concurrent button handling.
+    """
     def decorator(func):
         def inner(*args, **kwargs):
             global last_press
             call_time = utime.ticks_ms()
-            if call_time - last_press >= wait:
-                last_press = call_time
+            allowed = call_time - last_press >= wait
+            last_press = call_time
+            if allowed:
                 return func(*args, **kwargs)
-            else:
-                last_press = call_time
         return inner
     if callable(wait):
         return decorator(200)
@@ -85,6 +101,11 @@ def decrement(pin):
         state.poison = state.poison - 1
     elif state.mode == 'exp':
         state.exp = state.exp - 1
+
+@debounce(wait=200)
+def reset(pin):
+    state.reset()
+
 # }}}
 
 # Button definitions {{{
@@ -97,7 +118,7 @@ button_down = machine.Pin(badger2040.BUTTON_DOWN, machine.Pin.IN, machine.Pin.PU
 
 # Button handler wiring {{{
 button_a.irq(trigger=machine.Pin.IRQ_FALLING, handler=next_mode)
-# button_b.irq(trigger=machine.Pin.IRQ_RISING, handler=button)
+button_b.irq(trigger=machine.Pin.IRQ_FALLING, handler=reset)
 # button_c.irq(trigger=machine.Pin.IRQ_RISING, handler=button)
 
 button_up.irq(trigger=machine.Pin.IRQ_FALLING, handler=increment)
@@ -182,8 +203,9 @@ def incremental_render():
     if state.is_changed('exp'):
         updates.append(draw_exp())
     for update in filter(lambda x: x, updates):
-        print('flushing')
+        # Flush updates to affected regions.
         badger.partial_update(*update)
+        # Sync previous state for next partial refresh.
         state.flushed()
 # }}}
 
@@ -195,6 +217,9 @@ full_render()
 
 while True:
     current_time = utime.ticks_ms()
+    # Wait 500ms since the last update as refreshing the
+    # display blocks other actions and causes button presses
+    # to misbehave.
     if current_time - last_press > 500:
         incremental_render()
     time.sleep(0.3)
