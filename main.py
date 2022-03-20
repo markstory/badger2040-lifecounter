@@ -5,13 +5,22 @@ import utime
 
 badger = badger2040.Badger2040()
 
+
+# Global Constants
+STARTING_LIFE = 40
+
+# Set to max=4.0, min = 3.2 if using LiIon
+# and max = 2.5, min = 2.0 if using NiMH
+MAX_BATTERY_VOLTAGE = 2.5
+MIN_BATTERY_VOLTAGE = 2.0
+
 # Application State {{{
 MODES = ('life', 'poison', 'exp')
 
 class State:
     _prev_state = None
 
-    def __init__(self, mode='life', life=40, poison=0, exp=0):
+    def __init__(self, mode='life', life=STARTING_LIFE, poison=0, exp=0):
         self.mode = mode
         self.life = life
         self.poison = poison
@@ -31,7 +40,7 @@ class State:
 
     def reset(self):
         self.mode = 'life'
-        self.life = 40
+        self.life = STARTING_LIFE
         self.poison = 0
         self.exp = 0
 
@@ -133,19 +142,19 @@ def draw_life():
     badger.pen(0)
     badger.thickness(6)
     if state.life < 10:
-        badger.text(str(state.life), 70, 90, scale=3.0, rotation=-90)
+        badger.text(str(state.life), 80, 90, scale=3.0, rotation=-90)
     elif state.life < 100:
-        badger.text(str(state.life), 70, 120, scale=3.0, rotation=-90)
+        badger.text(str(state.life), 80, 120, scale=3.0, rotation=-90)
     else:
-        badger.text(str(state.life), 90, 125, scale=2.0, rotation=-90)
+        badger.text(str(state.life), 100, 125, scale=2.0, rotation=-90)
 
     badger.thickness(1)
-    badger.text('health', 120, 85, scale=0.50, rotation=-90)
+    badger.text('health', 130, 85, scale=0.50, rotation=-90)
     if state.mode == 'life':
-        badger.line(126, 88, 126, 40)
+        badger.line(136, 88, 136, 40)
 
     # affected region x, y, w, h
-    return [10, 0, 128, 128]
+    return [10, 0, 144, 144]
 
 def draw_poison():
     badger.pen(16)
