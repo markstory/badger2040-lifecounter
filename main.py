@@ -3,18 +3,23 @@ import machine
 import time
 import utime
 
-badger = badger2040.Badger2040()
-
-
-# Global Constants
+# Public Configuration Constants
 STARTING_LIFE = 40
+
+# Controls both the update speed of the display
+# but also the fastest frequency the UI will update.
+#
+# FAST & TURBO = 0.3
+# Others = 0.5
+REFRESH_RATE = badger2040.UPDATE_TURBO
 
 # Set to max=4.0, min = 3.2 if using LiIon
 # and max = 2.5, min = 2.0 if using NiMH
 MAX_BATTERY_VOLTAGE = 2.5
 MIN_BATTERY_VOLTAGE = 2.0
 
-# Application State {{{
+
+# Application Internal State {{{
 NUM_BATT_BARS = 5
 MODES = ('life', 'poison', 'exp')
 
@@ -159,9 +164,10 @@ def read_battery():
     vdd = 1.24 * (65535 / vref_adc.read_u16())
     # 3 here is a gain value, not rounding of 3.3V
     vbat = (vbat_adc.read_u16() / 65535) * 3 * vdd
-    if vbat < 0:
+    if vbat < 0.5:
         # No battery attached.
         state.battery = -1
+        return
 
     # Disable voltage reading
     vref_en.value(0)
@@ -293,8 +299,12 @@ def incremental_render():
         state.flushed()
     return len(updates) > 0
 
-# Start at 10 to force a refresh.
-_render_counter = 10
+_render_reset = 10
+if REFRESH_RATE == badger2040.UPDATE_TURBO:
+    _render_reset = 5
+
+# Start at _render_reset to force a refresh at boot.
+_render_counter = _render_reset
 
 def render():
     global _render_counter
@@ -302,7 +312,7 @@ def render():
     # Refresh the entire screen occasionally.
     # Because we're using turbo updates the screen
     # collects jank.
-    if _render_counter >= 10:
+    if _render_counter >= _render_reset:
         full_render()
         _render_counter = 0
     else:
@@ -315,9 +325,18 @@ def render():
 #
 # Main Program Loop
 #
-badger.update_speed(badger2040.UPDATE_FAST)
+badger = badger2040.Badger2040()
+
+# Initial Render done slow to wipe screen better.
+badger.update_speed(badger2040.UPDATE_MEDIUM)
 read_battery()
 render()
+badger.update_speed(REFRESH_RATE)
+
+
+sleep_value = 0.5
+if REFRESH_RATE in [badger2040.UPDATE_FAST, badger2040.UPDATE_TURBO]:
+    sleep_value = 0.3
 
 while True:
     current_time = utime.ticks_ms()
@@ -327,4 +346,4 @@ while True:
     if current_time - last_press > 500:
         read_battery()
         render()
-    time.sleep(0.3)
+    time.sleep(sleep_value)
