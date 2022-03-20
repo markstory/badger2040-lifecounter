@@ -15,16 +15,18 @@ MAX_BATTERY_VOLTAGE = 2.5
 MIN_BATTERY_VOLTAGE = 2.0
 
 # Application State {{{
+NUM_BATT_BARS = 5
 MODES = ('life', 'poison', 'exp')
 
 class State:
     _prev_state = None
 
-    def __init__(self, mode='life', life=STARTING_LIFE, poison=0, exp=0):
+    def __init__(self, mode='life', life=STARTING_LIFE, poison=0, exp=0, battery=-1):
         self.mode = mode
         self.life = life
         self.poison = poison
         self.exp = exp
+        self.battery = battery 
 
     def flushed(self):
         """
@@ -35,7 +37,8 @@ class State:
             mode=self.mode,
             life=self.life,
             poison=self.poison,
-            exp=self.exp
+            exp=self.exp,
+            battery=self.battery
         )
 
     def reset(self):
@@ -43,6 +46,7 @@ class State:
         self.life = STARTING_LIFE
         self.poison = 0
         self.exp = 0
+        self.battery = -1
 
     def is_changed(self, prop):
         if not self._prev_state:
@@ -117,12 +121,20 @@ def reset(pin):
 
 # }}}
 
-# Button definitions {{{
+# Pin definitions {{{
 button_a = machine.Pin(badger2040.BUTTON_A, machine.Pin.IN, machine.Pin.PULL_DOWN)
 button_b = machine.Pin(badger2040.BUTTON_B, machine.Pin.IN, machine.Pin.PULL_DOWN)
 button_c = machine.Pin(badger2040.BUTTON_C, machine.Pin.IN, machine.Pin.PULL_DOWN)
 button_up = machine.Pin(badger2040.BUTTON_UP, machine.Pin.IN, machine.Pin.PULL_DOWN)
 button_down = machine.Pin(badger2040.BUTTON_DOWN, machine.Pin.IN, machine.Pin.PULL_DOWN)
+
+# Battery indicator pins.
+vbat_adc = machine.ADC(badger2040.PIN_BATTERY)
+vref_adc = machine.ADC(badger2040.PIN_1V2_REF)
+vref_en = machine.Pin(badger2040.PIN_VREF_POWER)
+
+vref_en.init(machine.Pin.OUT)
+vref_en.value(0)
 # }}}
 
 # Button handler wiring {{{
@@ -134,10 +146,40 @@ button_up.irq(trigger=machine.Pin.IRQ_FALLING, handler=increment)
 button_down.irq(trigger=machine.Pin.IRQ_FALLING, handler=decrement)
 # }}}
 
+# Battery reading {{{
+def map_value(input, in_min, in_max, out_min, out_max):
+    return (((input - in_min) * (out_max - out_min)) / (in_max - in_min)) + out_min
+
+def read_battery():
+    # Enable voltage reading
+    vref_en.value(1)
+
+    # Calculate the logical supply voltage as it will be lower than 3.3V when reading
+    # from low batteries
+    vdd = 1.24 * (65535 / vref_adc.read_u16())
+    # 3 here is a gain value, not rounding of 3.3V
+    vbat = (vbat_adc.read_u16() / 65535) * 3 * vdd
+    if vbat < 0:
+        # No battery attached.
+        state.battery = -1
+
+    # Disable voltage reading
+    vref_en.value(0)
+
+    # Scale value so it fits between 0 - NUM_BATT_BARS
+    level = int(map_value(vbat, MIN_BATTERY_VOLTAGE, MAX_BATTERY_VOLTAGE, 0, NUM_BATT_BARS))
+    print('raw battery level vdd, vbat', vdd, vbat)
+    print('normalized', level)
+    print('current state', state.battery)
+    if abs(state.battery - level) > 1:
+        state.battery = level
+# }}}
+
+
 # Drawing {{{
 def draw_life():
-    badger.pen(16)
-    badger.rectangle(0, 0, 130, 128)
+    badger.pen(15)
+    badger.rectangle(16, 0, 130, 128)
 
     badger.pen(0)
     badger.thickness(6)
@@ -154,10 +196,10 @@ def draw_life():
         badger.line(136, 88, 136, 40)
 
     # affected region x, y, w, h
-    return [10, 0, 144, 144]
+    return [16, 0, 144, 144]
 
 def draw_poison():
-    badger.pen(16)
+    badger.pen(15)
     badger.rectangle(180, 64, 296, 128)
 
     value = state.poison
@@ -175,7 +217,7 @@ def draw_poison():
     return [180, 64, 270, 128]
 
 def draw_exp():
-    badger.pen(16)
+    badger.pen(15)
     badger.rectangle(180, 0, 296, 64)
 
     badger.pen(0)
@@ -189,10 +231,41 @@ def draw_exp():
     # affected region x, y, w, h
     return [180, 0, 270, 64]
 
+def draw_battery():
+    width = 24
+    height = 10
+    nub_offset = 2
+    nub_width = 2
+    border_width = 1
+    borders = border_width * 2
+
+    badger.pen(0)
+    badger.thickness(1)
+
+    # Outer rectangle
+    badger.rectangle(0, 0, height, width)
+
+    # Battery nub
+    badger.rectangle(nub_offset, width, 6, nub_width)
+
+    # Hole for drained area.
+    if state.battery < 1:
+        # Totally empty or unplugged
+        badger.pen(12)
+        badger.rectangle(border_width, border_width, height - borders, width - borders)
+    else:
+        # Fill from left side to the right with white to indicate fullness
+        badger.pen(8)
+        full_bars = state.battery * int(width / NUM_BATT_BARS)
+        badger.rectangle(border_width, full_bars, height - borders, width - full_bars - border_width)
+
+    return [0, 0, 16, 32]
+
 def full_render():
     badger.pen(15)
     badger.clear()
 
+    draw_battery()
     draw_life()
     draw_poison()
     draw_exp()
@@ -202,7 +275,7 @@ def full_render():
 def incremental_render():
     if state.is_changed('mode'):
         full_render()
-        return
+        return True
 
     updates = []
     if state.is_changed('life'):
@@ -211,18 +284,40 @@ def incremental_render():
         updates.append(draw_poison())
     if state.is_changed('exp'):
         updates.append(draw_exp())
+    if state.is_changed('battery'):
+        updates.append(draw_battery())
     for update in filter(lambda x: x, updates):
         # Flush updates to affected regions.
         badger.partial_update(*update)
         # Sync previous state for next partial refresh.
         state.flushed()
+    return len(updates) > 0
+
+# Start at 10 to force a refresh.
+_render_counter = 10
+
+def render():
+    global _render_counter
+
+    # Refresh the entire screen occasionally.
+    # Because we're using turbo updates the screen
+    # collects jank.
+    if _render_counter >= 10:
+        full_render()
+        _render_counter = 0
+    else:
+        updated = incremental_render()
+        if updated:
+            # Count the render pass if we did work
+            _render_counter += 1
 # }}}
 
 #
 # Main Program Loop
 #
 badger.update_speed(badger2040.UPDATE_FAST)
-full_render()
+read_battery()
+render()
 
 while True:
     current_time = utime.ticks_ms()
@@ -230,5 +325,6 @@ while True:
     # display blocks other actions and causes button presses
     # to misbehave.
     if current_time - last_press > 500:
-        incremental_render()
+        read_battery()
+        render()
     time.sleep(0.3)
