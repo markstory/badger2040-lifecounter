@@ -16,7 +16,7 @@ REFRESH_RATE = badger2040.UPDATE_TURBO
 # Set to max=4.0, min = 3.2 if using LiIon
 # and max = 2.5, min = 2.0 if using NiMH
 MAX_BATTERY_VOLTAGE = 2.5
-MIN_BATTERY_VOLTAGE = 2.0
+MIN_BATTERY_VOLTAGE = 1.9
 
 
 # Application Internal State {{{
@@ -173,21 +173,24 @@ def read_battery():
     vref_en.value(0)
 
     # Scale value so it fits between 0 - NUM_BATT_BARS
+    #print(f'vbat={vbat} min={MIN_BATTERY_VOLTAGE} max={MAX_BATTERY_VOLTAGE} num={NUM_BATT_BARS}')
     level = int(map_value(vbat, MIN_BATTERY_VOLTAGE, MAX_BATTERY_VOLTAGE, 0, NUM_BATT_BARS))
-    print('raw battery level vdd, vbat', vdd, vbat)
-    print('normalized', level)
-    print('current state', state.battery)
+    #print(f'level={level} num={NUM_BATT_BARS}')
     if abs(state.battery - level) > 1:
         state.battery = level
 # }}}
 
 
 # Drawing {{{
+FILL_BG_LIGHT = 12
+FILL_BLACK = 0
+FILL_WHITE = 15
+
 def draw_life():
-    badger.pen(15)
+    badger.pen(FILL_WHITE)
     badger.rectangle(16, 0, 130, 128)
 
-    badger.pen(0)
+    badger.pen(FILL_BLACK)
     badger.thickness(6)
     if state.life < 10:
         badger.text(str(state.life), 80, 90, scale=3.0, rotation=-90)
@@ -205,14 +208,14 @@ def draw_life():
     return [16, 0, 144, 144]
 
 def draw_poison():
-    badger.pen(15)
+    badger.pen(FILL_WHITE)
     badger.rectangle(180, 64, 296, 128)
 
     value = state.poison
     if value >= 10:
         value = 'X'
 
-    badger.pen(0)
+    badger.pen(FILL_BLACK)
     badger.thickness(3)
     badger.text(str(value), 230, 115, scale=2.0, rotation=-90)
 
@@ -223,10 +226,10 @@ def draw_poison():
     return [180, 64, 270, 128]
 
 def draw_exp():
-    badger.pen(15)
+    badger.pen(FILL_WHITE)
     badger.rectangle(180, 0, 296, 64)
 
-    badger.pen(0)
+    badger.pen(FILL_BLACK)
     badger.thickness(3)
     badger.text(str(state.exp), 230, 45, scale=2.0, rotation=-90)
 
@@ -238,37 +241,47 @@ def draw_exp():
     return [180, 0, 270, 64]
 
 def draw_battery():
-    width = 24
+    width = 22
     height = 10
     nub_offset = 2
     nub_width = 2
     border_width = 1
     borders = border_width * 2
 
-    badger.pen(0)
     badger.thickness(1)
 
+    # Clear inner area.
+    badger.pen(FILL_WHITE)
+    badger.rectangle(border_width, border_width, height - border_width, width - border_width)
+
     # Outer rectangle
+    badger.pen(FILL_BLACK)
     badger.rectangle(0, 0, height, width)
 
+    # Inner area clear and set to dim
+    badger.pen(FILL_BG_LIGHT)
+    badger.rectangle(border_width + 1, border_width + 1, height - borders - 1, width - borders - 1)
+
     # Battery nub
+    badger.pen(FILL_BLACK)
     badger.rectangle(nub_offset, width, 6, nub_width)
 
     # Hole for drained area.
     if state.battery < 1:
         # Totally empty or unplugged
-        badger.pen(12)
-        badger.rectangle(border_width, border_width, height - borders, width - borders)
+        badger.pen(FILL_BLACK)
+        badger.thickness(2)
+        badger.line(border_width, border_width, height - border_width, width - border_width)
     else:
-        # Fill from left side to the right with white to indicate fullness
-        badger.pen(8)
-        full_bars = state.battery * int(width / NUM_BATT_BARS)
-        badger.rectangle(border_width, full_bars, height - borders, width - full_bars - border_width)
+        # Fill from right side to the left to indicate a partial or full battery.
+        badger.pen(FILL_BLACK)
+        bar_px = state.battery * int((width - borders) / NUM_BATT_BARS)
+        badger.rectangle(border_width, border_width, height - border_width, bar_px)
 
     return [0, 0, 16, 32]
 
 def full_render():
-    badger.pen(15)
+    badger.pen(FILL_WHITE)
     badger.clear()
 
     draw_battery()
